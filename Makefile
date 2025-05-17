@@ -18,8 +18,7 @@ test/%.exe: chibicc test/%.c
 	$(CC) -pthread -o $@ test/$*.o -xc test/common
 
 test: $(TESTS)
-	for i in $^; do echo $$i; ./$$i || exit 1; echo; done
-	test/driver.sh ./chibicc
+	test/run_tests.sh ./chibicc $^
 
 test-all: test test-stage2
 
@@ -38,8 +37,7 @@ stage2/test/%.exe: stage2/chibicc test/%.c
 	$(CC) -pthread -o $@ stage2/test/$*.o -xc test/common
 
 test-stage2: $(TESTS:test/%=stage2/test/%)
-	for i in $^; do echo $$i; ./$$i || exit 1; echo; done
-	test/driver.sh ./stage2/chibicc
+	test/run_tests.sh ./stage2/chibicc $^
 
 # Misc.
 

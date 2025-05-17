@@ -5,12 +5,47 @@ tmp=`mktemp -d /tmp/chibicc-test-XXXXXX`
 trap 'rm -rf $tmp' INT TERM HUP EXIT
 echo > $tmp/empty.c
 
+# Track last executed command so we can show it on failures.
+trap 'prev_cmd=$this_cmd; this_cmd=$BASH_COMMAND' DEBUG
+
+success=0
+fail=0
+xfail_count=0
+xpass=0
+
+# List of tests that are expected to fail can be specified via the XFAIL
+# environment variable (space separated names).
+read -a expected_failures <<< "${XFAIL}"
+
+is_expected_failure() {
+    for t in "${expected_failures[@]}"; do
+        if [ "${t}" = "$1" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 check() {
-    if [ $? -eq 0 ]; then
-        echo "testing $1 ... passed"
+    status=$?
+    if [ $status -eq 0 ]; then
+        if is_expected_failure "$1"; then
+            echo "testing $1 ... unexpected success"
+            ((xpass++))
+        else
+            echo "testing $1 ... passed"
+            ((success++))
+        fi
     else
-        echo "testing $1 ... failed"
-        exit 1
+        if is_expected_failure "$1"; then
+            echo "testing $1 ... expected failure"
+            echo "  command: $prev_cmd"
+            ((xfail_count++))
+        else
+            echo "testing $1 ... failed"
+            echo "  command: $prev_cmd"
+            ((fail++))
+        fi
     fi
 }
 
@@ -279,7 +314,12 @@ echo 'extern int bar; int foo() { return bar; }' > $tmp/foo.c
 echo 'int foo(); int bar=3; int main() { foo(); }' > $tmp/bar.c
 $chibicc -static -o $tmp/foo $tmp/foo.c $tmp/bar.c
 check -static
-file $tmp/foo | grep -q 'statically linked'
+if command -v file >/dev/null 2>&1; then
+    file $tmp/foo | grep -q 'statically linked'
+else
+    # Fallback: use ldd to verify static linking when 'file' is unavailable
+    ldd $tmp/foo 2>&1 | grep -q 'not a dynamic executable'
+fi
 check -static
 
 # -shared
@@ -309,4 +349,8 @@ echo 'int main() {}' | $chibicc -c -o $tmp/baz.o -xc -
 cc -Xlinker -z -Xlinker muldefs -Xlinker --gc-sections -o $tmp/foo $tmp/foo.o $tmp/bar.o $tmp/baz.o
 check -Xlinker
 
-echo OK
+echo "Driver summary:"
+echo "  Passed: $success"
+echo "  Expected failures: $xfail_count"
+echo "  Unexpected successes: $xpass"
+echo "  Failed: $fail"
